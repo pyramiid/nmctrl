@@ -1,0 +1,77 @@
+#!/bin/sh
+
+prog="dmenu -l 20"
+progtext="-p "
+case $1 in
+    -h|--help)
+        echo "usage: nmctrl [OPTIONS]"
+        echo "  --fzf           use fzf"
+        echo "  --dmenu         use dmenu (default)"
+        echo "  -h --help       print this message"
+        exit
+        ;;
+    --fzf)
+        prog="fzf"
+        progtext="--prompt="
+        ;;
+    --dmenu)
+        prog="dmenu -l 20"
+        progtext="-p "
+        ;;
+    *)
+        ;;
+esac
+
+which ${prog%% *} >/dev/null 2>&1 || { echo "${prog%% *} not installed"; exit 1 ; }
+
+wifiloop () {
+    apconnected=ooo
+    while [ ${#apconnected} -gt 2 ]; do
+        ap=$(nmcli device wifi list --rescan yes | sed 's/*/o/' | $prog | sed 's/ \{2,\}/#/g')
+        apconnected=$(echo $ap | awk -F '#' '{print $1}')
+        apbssid=$(echo $ap | awk -F '#' '{print $2}')
+        apname=$(echo $ap | awk -F '#' '{print $3}')
+        if [ "$ap" = "" ]; then
+            return
+        fi
+    done
+    if [ "$apconnected" = "o" ]; then
+        nmcli connection down id $apname
+    else
+        nmcli device wifi connect $apbssid | grep "successfully"
+        if [ $? != "0" ]; then 
+            password=$(echo "" | $prog $progtext"Enter password for $apname: ")
+            nmcli device wifi connect $apbssid password $password
+            if [ $? != "0" ]; then
+                tmp=$(echo "could not connect to $apname (maybe wrong password)" | $prog)
+            fi
+        fi
+    fi
+}
+
+while true; do
+    selection=$(printf "exit\nwifi scan\nwifi on\nwifi off\nwifi delete connection\nrestart ath10k_pci" | $prog)
+    case $selection in
+        "exit")
+            exit
+            ;;
+        "wifi scan")
+            wifiloop
+            ;;
+        "wifi on")
+            nmcli radio wifi on
+            ;;
+        "wifi off")
+            nmcli radio wifi off
+            ;;
+        "wifi delete connection")
+            con=$(nmcli connection show | tail -n +2 | $prog)
+            if [ -n "$con" ]; then
+                nmcli connection delete $(echo $con | awk -F ' ' '{print $2}')
+            fi
+            ;;
+        *)
+            ;;
+    esac
+done
+
